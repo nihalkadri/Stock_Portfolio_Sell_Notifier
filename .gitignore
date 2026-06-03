@@ -1,0 +1,16 @@
+
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Local env
+.env
+
+# Outputs and logs
+outputs/
+*.log
+
+# Editor
+.vscode/
+.DS_Store

@@ -1,0 +1,92 @@
+name: Stock Notifier (India hours, hourly)
+
+on:
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: false
+        default: 'warning'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Prepare outputs folder
+        run: |
+          mkdir -p outputs
+
+      - name: "Debug: python env and packages"
+        run: |
+          python -c "import sys,platform; print('python', sys.version); print('platform', platform.platform())"
+          python -c "import pkgutil; print('installed packages count:', len(list(pkgutil.iter_modules())))"
+          echo "=== pip list ==="
+          pip list
+
+      - name: "CI debug: show yf.download tail and get_stock_data"
+        run: |
+          python - <<'PY'
+          import traceback, yfinance as yf
+          from data_fetch import get_stock_data
+          try:
+              print("=== CI: yf.download test ===")
+              df = yf.download('SJVN.NS', period='5d', interval='1d', progress=False, threads=False)
+              print('CI yf.download rows:', 0 if df is None else len(df))
+              try:
+                  print(df.tail().to_string())
+              except Exception as e:
+                  print('error printing df tail:', e)
+              try:
+                  import pandas as pd
+                  if isinstance(df.columns, pd.MultiIndex):
+                      if 'Close' in df.columns.get_level_values(0):
+                          print('\\nClose (level 0) tail:')
+                          print(df.xs('Close', axis=1, level=0).tail().to_string())
+              except Exception as e:
+                  print('close extraction error:', e)
+              print("\\n=== CI: get_stock_data test ===")
+              try:
+                  res = get_stock_data('SJVN.NS')
+                  print('get_stock_data returned type:', type(res))
+                  print('get_stock_data returned:', res)
+              except Exception:
+                  traceback.print_exc()
+          except Exception:
+              traceback.print_exc()
+          PY
+
+      - name: Run stock agent (dry-run by default)
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEND_REAL: ${{ secrets.SEND_REAL }}
+        run: |
+          if [ "${SEND_REAL}" = "true" ]; then
+            python stock_agent.py
+          else
+            python stock_agent.py --dry-run
+          fi
+
+      - name: Upload outputs for debugging
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-notifier-outputs
+          path: outputs/
